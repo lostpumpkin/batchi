@@ -73,9 +73,20 @@ pub fn SpectrogramWebGl3D(
         if t_bins == 0 { return; }
         let f_bins = d.columns[0].magnitudes.len();
 
-        let mut db_data = vec![-120.0f32; t_bins * f_bins];
+        // Limit texture width to MAX_TEX_WIDTH (e.g. 4096 or 8192) to prevent GL errors and black screen
+        const MAX_TEX_WIDTH: usize = 4096;
+        let mut target_width = t_bins;
+        let mut stride = 1.0;
+
+        if t_bins > MAX_TEX_WIDTH {
+            target_width = MAX_TEX_WIDTH;
+            stride = t_bins as f64 / MAX_TEX_WIDTH as f64;
+        }
+
+        let mut db_data = vec![-120.0f32; target_width * f_bins];
 
         // Find max magnitude for normalization
+        // (Optimization: could approximate from subset, but full scan is safer for correct normalization)
         let max_mag = d.columns.iter()
             .flat_map(|c| c.magnitudes.iter())
             .copied()
@@ -86,7 +97,15 @@ pub fn SpectrogramWebGl3D(
         let mode = bandpass_mode.get();
         let mask_active = bp.enabled && mode == BandpassMode::Visualization;
 
-        for (t, col) in d.columns.iter().enumerate() {
+        for t in 0..target_width {
+            // If downsampling, we pick a column based on stride
+            // Ideally we should max-pool over the stride window, but nearest neighbor or simple sampling is faster.
+            // Let's do simple sampling for speed.
+            let src_t = (t as f64 * stride) as usize;
+            if src_t >= t_bins { break; }
+
+            let col = &d.columns[src_t];
+
             for (f, &mag) in col.magnitudes.iter().enumerate() {
                 let freq_hz = f as f32 * d.freq_resolution as f32;
 
@@ -105,7 +124,24 @@ pub fn SpectrogramWebGl3D(
 
                 // Write to texture buffer
                 // Texture expects: x=time, y=freq
-                let idx = f * t_bins + t;
+                // Note: t varies fastest in idx calculation if we want [x=time, y=freq] layout?
+                // Wait. Texture memory layout usually rows first?
+                // upload_db_texture: "row-major time-major (x changes fastest)"
+                // But texture coordinates: u (x) is usually width (columns), v (y) is height (rows).
+                // If width=time, height=freq.
+                // GL_TEXTURE_2D expects data as sequence of rows.
+                // Row 0 (y=0) is usually bottom.
+                // Each row has width pixels.
+                // So data should be [ (x=0,y=0), (x=1,y=0), ... (x=W-1,y=0), (x=0,y=1), ... ]
+                // This means X changes fastest.
+
+                // My previous code:
+                // let idx = f * t_bins + t;
+                // f is freq (y), t is time (x).
+                // So idx = y * width + x.
+                // This matches "x changes fastest".
+
+                let idx = f * target_width + t;
                 if idx < db_data.len() {
                     db_data[idx] = val_db;
                 }
@@ -114,7 +150,7 @@ pub fn SpectrogramWebGl3D(
 
         renderer.update_value(|wrapper| {
             if let Some(w) = wrapper {
-                let _ = w.0.upload_db_texture(t_bins as i32, f_bins as i32, &db_data);
+                let _ = w.0.upload_db_texture(target_width as i32, f_bins as i32, &db_data);
             }
         });
     });
