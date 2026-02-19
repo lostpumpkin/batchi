@@ -8,8 +8,9 @@ use web_sys::{CanvasRenderingContext2d, DragEvent, File, FileReader, HtmlCanvasE
 use crate::audio::loader::load_audio;
 use crate::dsp::fft::{compute_preview, compute_spectrogram};
 use crate::dsp::zero_crossing::zero_crossing_frequency;
+use crate::dsp::bandpass::BandpassParams;
 use crate::audio::playback;
-use crate::state::{AppState, LoadedFile, PlaybackMode, SidebarTab, SpectrogramDisplay};
+use crate::state::{AppState, LoadedFile, PlaybackMode, SidebarTab, SpectrogramDisplay, ViewMode, BandpassMode};
 use crate::types::{PreviewImage, SpectrogramData};
 
 /// Returns (section, display_key) for a GUANO field.
@@ -296,6 +297,17 @@ fn FilesPanel() -> impl IntoView {
 fn SpectrogramSettingsPanel() -> impl IntoView {
     let state = expect_context::<AppState>();
 
+    let on_view_mode_change = move |ev: web_sys::Event| {
+        let target = ev.target().unwrap();
+        let select: web_sys::HtmlSelectElement = target.unchecked_into();
+        let mode = match select.value().as_str() {
+            "trace" => ViewMode::SyllableTrace,
+            "webgl" => ViewMode::Waterfall3D,
+            _ => ViewMode::Spectrogram2D,
+        };
+        state.view_mode.set(mode);
+    };
+
     let on_toggle_change = move |ev: web_sys::Event| {
         let target = ev.target().unwrap();
         let input: web_sys::HtmlInputElement = target.unchecked_into();
@@ -347,9 +359,242 @@ fn SpectrogramSettingsPanel() -> impl IntoView {
         state.max_display_freq.set(freq);
     };
 
+    // Bandpass handlers
+    let on_bp_enabled_change = move |ev: web_sys::Event| {
+        let target = ev.target().unwrap();
+        let input: web_sys::HtmlInputElement = target.unchecked_into();
+        state.bandpass_enabled.set(input.checked());
+    };
+
+    let on_bp_mode_change = move |ev: web_sys::Event| {
+        let target = ev.target().unwrap();
+        let select: web_sys::HtmlSelectElement = target.unchecked_into();
+        let mode = match select.value().as_str() {
+            "time" => BandpassMode::TimeDomain,
+            _ => BandpassMode::Visualization,
+        };
+        state.bandpass_mode.set(mode);
+    };
+
+    let make_bp_f64_handler = |signal: RwSignal<f64>| {
+        move |ev: web_sys::Event| {
+            let target = ev.target().unwrap();
+            let input: web_sys::HtmlInputElement = target.unchecked_into();
+            if let Ok(val) = input.value().parse::<f64>() {
+                signal.set(val);
+            }
+        }
+    };
+
+    let on_bp_low_change = make_bp_f64_handler(state.bandpass_low_hz);
+    let on_bp_high_change = make_bp_f64_handler(state.bandpass_high_hz);
+    let on_bp_q_change = make_bp_f64_handler(state.bandpass_q);
+
+    // WebGL handlers
+    let make_webgl_f32_handler = |signal: RwSignal<f32>| {
+        move |ev: web_sys::Event| {
+            let target = ev.target().unwrap();
+            let input: web_sys::HtmlInputElement = target.unchecked_into();
+            if let Ok(val) = input.value().parse::<f32>() {
+                signal.set(val);
+            }
+        }
+    };
+    let on_zgain_change = make_webgl_f32_handler(state.webgl_zgain);
+    let on_floor_change = make_webgl_f32_handler(state.webgl_floor_db);
+    let on_contrast_change = make_webgl_f32_handler(state.webgl_contrast);
+
+    // Apply filter (Time-Domain)
+    let apply_filter = move |_| {
+        let idx = state.current_file_index.get_untracked();
+        if let Some(i) = idx {
+            let files = state.files.get_untracked();
+            if let Some(file) = files.get(i) {
+                // Construct params
+                let params = BandpassParams {
+                    enabled: state.bandpass_enabled.get_untracked(),
+                    low_hz: state.bandpass_low_hz.get_untracked() as f32,
+                    high_hz: state.bandpass_high_hz.get_untracked() as f32,
+                    q: state.bandpass_q.get_untracked() as f32,
+                    center_hz: state.bandpass_center_hz.get_untracked() as f32,
+                    center_q: state.bandpass_center_q.get_untracked() as f32,
+                };
+
+                // Recompute
+                state.loading_count.update(|c| *c += 1);
+
+                // Clone needed data to avoid borrowing state in async/closure if we were async
+                // But compute_spectrogram is sync. We still need to handle the update carefully.
+                // We'll just do it synchronously here as it's the pattern used.
+                let audio = file.audio.clone();
+
+                // Show loading spinner briefly? Browsers might not render if we block immediately.
+                // But let's just do the work.
+
+                let spec = compute_spectrogram(&audio, 2048, 512, Some(params));
+
+                state.files.update(|files| {
+                    if let Some(f) = files.get_mut(i) {
+                        f.spectrogram = spec;
+                    }
+                });
+                state.loading_count.update(|c| *c = c.saturating_sub(1));
+            }
+        }
+    };
+
     view! {
         <div class="sidebar-panel">
-            // Max display frequency section (first)
+            // View Mode
+            <div class="setting-group">
+                <div class="setting-group-title">"View Mode"</div>
+                <div class="setting-row">
+                    <select
+                        class="setting-select"
+                        on:change=on_view_mode_change
+                        prop:value=move || match state.view_mode.get() {
+                            ViewMode::Spectrogram2D => "2d",
+                            ViewMode::SyllableTrace => "trace",
+                            ViewMode::Waterfall3D => "webgl",
+                        }
+                    >
+                        <option value="2d">"2D Spectrogram"</option>
+                        <option value="trace">"Syllable Trace"</option>
+                        <option value="webgl">"3D Waterfall"</option>
+                    </select>
+                </div>
+            </div>
+
+            // Bandpass Filter
+            <div class="setting-group">
+                <div class="setting-group-title">"Bandpass Filter"</div>
+                <div class="setting-row">
+                    <span class="setting-label">"Enabled"</span>
+                    <input
+                        type="checkbox"
+                        class="setting-checkbox"
+                        prop:checked=move || state.bandpass_enabled.get()
+                        on:change=on_bp_enabled_change
+                    />
+                </div>
+                {move || if state.bandpass_enabled.get() {
+                    view! {
+                        <div class="setting-row">
+                            <span class="setting-label">"Mode"</span>
+                            <select
+                                class="setting-select"
+                                on:change=on_bp_mode_change
+                                prop:value=move || match state.bandpass_mode.get() {
+                                    BandpassMode::Visualization => "vis",
+                                    BandpassMode::TimeDomain => "time",
+                                }
+                            >
+                                <option value="vis">"Visualization (Mask)"</option>
+                                <option value="time">"Time-Domain (IIR)"</option>
+                            </select>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">"Low Cut (Hz)"</span>
+                            <input
+                                type="number"
+                                class="setting-number"
+                                prop:value=move || state.bandpass_low_hz.get()
+                                on:change=on_bp_low_change
+                            />
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">"High Cut (Hz)"</span>
+                            <input
+                                type="number"
+                                class="setting-number"
+                                prop:value=move || state.bandpass_high_hz.get()
+                                on:change=on_bp_high_change
+                            />
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">"Q"</span>
+                            <input
+                                type="number"
+                                class="setting-number"
+                                step="0.1"
+                                prop:value=move || state.bandpass_q.get()
+                                on:change=on_bp_q_change
+                            />
+                        </div>
+                        {move || if state.bandpass_mode.get() == BandpassMode::TimeDomain {
+                            view! {
+                                <div class="setting-row">
+                                    <button class="upload-btn" on:click=apply_filter>
+                                        "Apply Filter & Recompute"
+                                    </button>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }}
+                    }.into_any()
+                } else {
+                    view! { <span></span> }.into_any()
+                }}
+            </div>
+
+            // WebGL Controls (conditional)
+            {move || if state.view_mode.get() == ViewMode::Waterfall3D {
+                view! {
+                    <div class="setting-group">
+                        <div class="setting-group-title">"3D Settings"</div>
+                        <div class="setting-row">
+                            <span class="setting-label">"Z-Gain"</span>
+                            <div class="setting-slider-row">
+                                <input
+                                    type="range"
+                                    class="setting-range"
+                                    min="0"
+                                    max="5"
+                                    step="0.1"
+                                    prop:value=move || state.webgl_zgain.get().to_string()
+                                    on:input=on_zgain_change
+                                />
+                                <span class="setting-value">{move || format!("{:.1}", state.webgl_zgain.get())}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">"Floor (dB)"</span>
+                            <div class="setting-slider-row">
+                                <input
+                                    type="range"
+                                    class="setting-range"
+                                    min="-140"
+                                    max="-20"
+                                    step="1"
+                                    prop:value=move || state.webgl_floor_db.get().to_string()
+                                    on:input=on_floor_change
+                                />
+                                <span class="setting-value">{move || format!("{:.0}", state.webgl_floor_db.get())}</span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">"Contrast"</span>
+                            <div class="setting-slider-row">
+                                <input
+                                    type="range"
+                                    class="setting-range"
+                                    min="0.1"
+                                    max="5"
+                                    step="0.1"
+                                    prop:value=move || state.webgl_contrast.get().to_string()
+                                    on:input=on_contrast_change
+                                />
+                                <span class="setting-value">{move || format!("{:.1}", state.webgl_contrast.get())}</span>
+                            </div>
+                        </div>
+                    </div>
+                }.into_any()
+            } else {
+                view! { <span></span> }.into_any()
+            }}
+
+            // Max display frequency section
             <div class="setting-group">
                 <div class="setting-group-title">"Display"</div>
                 <div class="setting-row">
@@ -1049,7 +1294,7 @@ async fn load_named_bytes(name: String, bytes: &[u8], xc_metadata: Option<Vec<(S
     JsFuture::from(yield_promise).await.ok();
 
     // Phase 2: full spectrogram
-    let spectrogram = compute_spectrogram(&audio_for_stft, 2048, 512);
+    let spectrogram = compute_spectrogram(&audio_for_stft, 2048, 512, None);
     log::info!(
         "Spectrogram: {} columns, freq_res={:.1} Hz, time_res={:.4}s",
         spectrogram.columns.len(),

@@ -3,7 +3,9 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, MouseEvent};
 use crate::canvas::spectrogram_renderer::{self, FreqMarkerState, FreqShiftMode, MovementAlgo, MovementData, PreRendered};
-use crate::state::{AppState, PlaybackMode, Selection, SpectrogramDisplay};
+use crate::state::{AppState, PlaybackMode, Selection, SpectrogramDisplay, ViewMode, BandpassMode};
+use crate::components::spectrogram_webgl::SpectrogramWebGl3D;
+use crate::dsp::bandpass::BandpassParams;
 
 const LABEL_AREA_WIDTH: f64 = 60.0;
 
@@ -55,8 +57,34 @@ pub fn Spectrogram() -> impl IntoView {
         let idx = state.current_file_index.get();
         let display = state.spectrogram_display.get();
         let enabled = state.mv_enabled.get();
+
         if let Some(i) = idx {
             if let Some(file) = files.get(i) {
+                // Determine mask range
+                // If enabled (movement view), we use untracked to avoid expensive re-runs on slider drag.
+                // If disabled (standard view), we track it so it updates.
+                let (bp_enabled, bp_mode, bp_low, bp_high) = if enabled {
+                    (
+                        state.bandpass_enabled.get_untracked(),
+                        state.bandpass_mode.get_untracked(),
+                        state.bandpass_low_hz.get_untracked(),
+                        state.bandpass_high_hz.get_untracked(),
+                    )
+                } else {
+                    (
+                        state.bandpass_enabled.get(),
+                        state.bandpass_mode.get(),
+                        state.bandpass_low_hz.get(),
+                        state.bandpass_high_hz.get(),
+                    )
+                };
+
+                let mask_range = if bp_enabled && bp_mode == BandpassMode::Visualization {
+                    Some((bp_low as f32, bp_high as f32))
+                } else {
+                    None
+                };
+
                 if file.spectrogram.columns.is_empty() {
                     movement_cache.set(None);
                     if let Some(ref pv) = file.preview {
@@ -70,7 +98,7 @@ pub fn Spectrogram() -> impl IntoView {
                     }
                 } else if !enabled {
                     movement_cache.set(None);
-                    pre_rendered.set(Some(spectrogram_renderer::pre_render(&file.spectrogram)));
+                    pre_rendered.set(Some(spectrogram_renderer::pre_render(&file.spectrogram, mask_range)));
                 } else {
                     let algo = match display {
                         SpectrogramDisplay::MovementCentroid => MovementAlgo::Centroid,
@@ -81,7 +109,8 @@ pub fn Spectrogram() -> impl IntoView {
                     let ig = state.mv_intensity_gate.get_untracked();
                     let mg = state.mv_movement_gate.get_untracked();
                     let op = state.mv_opacity.get_untracked();
-                    pre_rendered.set(Some(spectrogram_renderer::composite_movement(&md, ig, mg, op)));
+                    let freq_res = file.spectrogram.freq_resolution as f32;
+                    pre_rendered.set(Some(spectrogram_renderer::composite_movement(&md, ig, mg, op, mask_range, freq_res)));
                     movement_cache.set(Some(md));
                 }
             }
@@ -96,9 +125,26 @@ pub fn Spectrogram() -> impl IntoView {
         let ig = state.mv_intensity_gate.get();
         let mg = state.mv_movement_gate.get();
         let op = state.mv_opacity.get();
+
+        // Track bandpass settings here for fast updates in Movement mode
+        let bp_enabled = state.bandpass_enabled.get();
+        let bp_mode = state.bandpass_mode.get();
+        let bp_low = state.bandpass_low_hz.get();
+        let bp_high = state.bandpass_high_hz.get();
+        let mask_range = if bp_enabled && bp_mode == BandpassMode::Visualization {
+            Some((bp_low as f32, bp_high as f32))
+        } else {
+            None
+        };
+
+        // Get freq res
+        let files = state.files.get();
+        let idx = state.current_file_index.get();
+        let freq_res = idx.and_then(|i| files.get(i)).map(|f| f.spectrogram.freq_resolution as f32).unwrap_or(43.0);
+
         movement_cache.with_untracked(|mc| {
             if let Some(md) = mc {
-                pre_rendered.set(Some(spectrogram_renderer::composite_movement(md, ig, mg, op)));
+                pre_rendered.set(Some(spectrogram_renderer::composite_movement(md, ig, mg, op, mask_range, freq_res)));
             }
         });
     });
@@ -404,14 +450,41 @@ pub fn Spectrogram() -> impl IntoView {
 
     view! {
         <div class="spectrogram-container">
-            <canvas
-                node_ref=canvas_ref
-                on:wheel=on_wheel
-                on:mousedown=on_mousedown
-                on:mousemove=on_mousemove
-                on:mouseup=on_mouseup
-                on:mouseleave=on_mouseleave
-            />
+            {move || if state.view_mode.get() == ViewMode::Waterfall3D {
+                view! {
+                    <SpectrogramWebGl3D
+                        data=Signal::derive(move || {
+                             let files = state.files.get();
+                             let idx = state.current_file_index.get()?;
+                             files.get(idx).map(|f| f.spectrogram.clone())
+                        })
+                        zgain=state.webgl_zgain.read_only().into()
+                        floor_db=state.webgl_floor_db.read_only().into()
+                        contrast=state.webgl_contrast.read_only().into()
+                        bandpass_params=Signal::derive(move || BandpassParams {
+                            enabled: state.bandpass_enabled.get(),
+                            low_hz: state.bandpass_low_hz.get() as f32,
+                            high_hz: state.bandpass_high_hz.get() as f32,
+                            q: state.bandpass_q.get() as f32,
+                            center_hz: state.bandpass_center_hz.get() as f32,
+                            center_q: state.bandpass_center_q.get() as f32,
+                        })
+                        bandpass_mode=state.bandpass_mode.read_only().into()
+                    />
+                }.into_any()
+            } else {
+                view! {
+                    <canvas
+                        node_ref=canvas_ref
+                        on:wheel=on_wheel
+                        on:mousedown=on_mousedown
+                        on:mousemove=on_mousemove
+                        on:mouseup=on_mouseup
+                        on:mouseleave=on_mouseleave
+                        style="width: 100%; height: 100%; display: block;"
+                    />
+                }.into_any()
+            }}
         </div>
     }
 }

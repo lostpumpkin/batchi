@@ -1,17 +1,4 @@
-//! WebGL2 3D waterfall renderer for spectrograms.
-//!
-//! This is a *renderer* only: it expects spectrogram power data laid out as
-//! a float grid (time bins × freq bins) in dB or normalized.
-//!
-//! Integrate by:
-//! - creating a <canvas> that uses WebGL2
-//! - building/refreshing a float texture when spectrogram settings/data change
-//! - drawing each animation frame
-//!
-//! Notes:
-//! - For float textures, WebGL2 typically supports sampling `R32F`
-//!   but some platforms may require extensions depending on usage.
-//! - This code avoids rendering to float; it only uploads and samples.
+//! WebGL2 3D Waterfall renderer.
 
 use wasm_bindgen::prelude::*;
 use web_sys::{WebGl2RenderingContext as GL, WebGlBuffer, WebGlProgram, WebGlShader, WebGlTexture, WebGlVertexArrayObject};

@@ -9,7 +9,7 @@
 
 use crate::dsp::biquad::Biquad;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BandpassParams {
     /// Enable/disable filtering.
     pub enabled: bool,

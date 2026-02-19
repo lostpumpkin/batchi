@@ -52,6 +52,21 @@ pub enum FilterQuality {
     HQ,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum ViewMode {
+    #[default]
+    Spectrogram2D,
+    SyllableTrace,
+    Waterfall3D,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum BandpassMode {
+    #[default]
+    Visualization,
+    TimeDomain,
+}
+
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub files: RwSignal<Vec<LoadedFile>>,
@@ -98,6 +113,18 @@ pub struct AppState {
     pub het_cutoff: RwSignal<f64>,
     pub sidebar_collapsed: RwSignal<bool>,
     pub sidebar_width: RwSignal<f64>,
+    // View & Bandpass
+    pub view_mode: RwSignal<ViewMode>,
+    pub bandpass_enabled: RwSignal<bool>,
+    pub bandpass_mode: RwSignal<BandpassMode>,
+    pub bandpass_low_hz: RwSignal<f64>,
+    pub bandpass_high_hz: RwSignal<f64>,
+    pub bandpass_q: RwSignal<f64>,
+    pub bandpass_center_hz: RwSignal<f64>,
+    pub bandpass_center_q: RwSignal<f64>,
+    pub webgl_zgain: RwSignal<f32>,
+    pub webgl_floor_db: RwSignal<f32>,
+    pub webgl_contrast: RwSignal<f32>,
 }
 
 impl AppState {
@@ -146,6 +173,17 @@ impl AppState {
             het_cutoff: RwSignal::new(15_000.0),
             sidebar_collapsed: RwSignal::new(false),
             sidebar_width: RwSignal::new(220.0),
+            view_mode: RwSignal::new(ViewMode::Spectrogram2D),
+            bandpass_enabled: RwSignal::new(false),
+            bandpass_mode: RwSignal::new(BandpassMode::Visualization),
+            bandpass_low_hz: RwSignal::new(15_000.0),
+            bandpass_high_hz: RwSignal::new(120_000.0),
+            bandpass_q: RwSignal::new(0.707),
+            bandpass_center_hz: RwSignal::new(0.0),
+            bandpass_center_q: RwSignal::new(8.0),
+            webgl_zgain: RwSignal::new(0.5),
+            webgl_floor_db: RwSignal::new(-80.0),
+            webgl_contrast: RwSignal::new(1.0),
         }
     }
 

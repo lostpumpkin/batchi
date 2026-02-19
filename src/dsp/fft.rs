@@ -1,6 +1,8 @@
 use crate::canvas::colors::magnitude_to_greyscale;
 use crate::types::{AudioData, PreviewImage, SpectrogramColumn, SpectrogramData};
+use crate::dsp::bandpass::{BandpassParams, BandpassChain};
 use realfft::RealFftPlanner;
+use std::borrow::Cow;
 
 /// Compute a spectrogram from audio data using a Short-Time Fourier Transform (STFT).
 ///
@@ -9,6 +11,7 @@ pub fn compute_spectrogram(
     audio: &AudioData,
     fft_size: usize,
     hop_size: usize,
+    bandpass: Option<BandpassParams>,
 ) -> SpectrogramData {
     let mut planner = RealFftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(fft_size);
@@ -22,9 +25,23 @@ pub fn compute_spectrogram(
         })
         .collect();
 
+    // Apply time-domain bandpass if requested
+    let samples_cow = if let Some(params) = bandpass {
+        if params.enabled {
+            let mut chain = BandpassChain::new(audio.sample_rate as f32, params);
+            let mut s = audio.samples.clone();
+            chain.process_in_place(&mut s);
+            Cow::Owned(s)
+        } else {
+            Cow::Borrowed(&audio.samples)
+        }
+    } else {
+        Cow::Borrowed(&audio.samples)
+    };
+
     let mut pos = 0;
-    while pos + fft_size <= audio.samples.len() {
-        let mut input: Vec<f32> = audio.samples[pos..pos + fft_size]
+    while pos + fft_size <= samples_cow.len() {
+        let mut input: Vec<f32> = samples_cow[pos..pos + fft_size]
             .iter()
             .zip(window.iter())
             .map(|(&s, &w)| s * w)
@@ -71,7 +88,7 @@ pub fn compute_preview(audio: &AudioData, target_width: u32, target_height: u32)
 
     let fft_size = 256;
     let hop = (audio.samples.len() / target_width as usize).max(fft_size);
-    let spec = compute_spectrogram(audio, fft_size, hop);
+    let spec = compute_spectrogram(audio, fft_size, hop, None);
 
     if spec.columns.is_empty() {
         return PreviewImage {
@@ -142,9 +159,15 @@ mod tests {
             sample_rate,
             channels: 1,
             duration_secs: num_samples as f64 / sample_rate as f64,
+            metadata: crate::types::FileMetadata {
+                file_size: 0,
+                format: "test",
+                bits_per_sample: 16,
+                guano: None,
+            },
         };
 
-        let result = compute_spectrogram(&audio, 1024, 512);
+        let result = compute_spectrogram(&audio, 1024, 512, None);
         assert!(!result.columns.is_empty());
         assert_eq!(result.sample_rate, sample_rate);
 

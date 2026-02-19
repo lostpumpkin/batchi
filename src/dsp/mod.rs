@@ -4,3 +4,5 @@ pub mod heterodyne;
 pub mod pitch_shift;
 pub mod zc_divide;
 pub mod zero_crossing;
+pub mod biquad;
+pub mod bandpass;
