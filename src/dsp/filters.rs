@@ -188,7 +188,7 @@ pub fn apply_eq_filter_fast(
 fn cascaded_lowpass(samples: &[f32], cutoff: f64, sample_rate: u32, passes: usize) -> Vec<f32> {
     let mut result = samples.to_vec();
     for _ in 0..passes {
-        result = lowpass_filter(&result, cutoff, sample_rate);
+        lowpass_filter_in_place(&mut result, cutoff, sample_rate);
     }
     result
 }
@@ -201,25 +201,29 @@ fn cascaded_lowpass(samples: &[f32], cutoff: f64, sample_rate: u32, passes: usiz
 /// For production use, upgrade to a higher-order Butterworth or Chebyshev filter
 /// for sharper rolloff.
 pub fn lowpass_filter(samples: &[f32], cutoff_hz: f64, sample_rate: u32) -> Vec<f32> {
+    let mut out = samples.to_vec();
+    lowpass_filter_in_place(&mut out, cutoff_hz, sample_rate);
+    out
+}
+
+pub fn lowpass_filter_in_place(samples: &mut [f32], cutoff_hz: f64, sample_rate: u32) {
     if samples.is_empty() {
-        return Vec::new();
+        return;
     }
 
     let dt = 1.0 / sample_rate as f64;
     let rc = 1.0 / (2.0 * std::f64::consts::PI * cutoff_hz);
     let alpha = (dt / (rc + dt)) as f32;
 
-    let mut output = Vec::with_capacity(samples.len());
     let mut prev = samples[0];
-    output.push(prev);
+    // samples[0] remains unchanged
 
-    for &sample in &samples[1..] {
+    for i in 1..samples.len() {
+        let sample = samples[i];
         let filtered = alpha * sample + (1.0 - alpha) * prev;
-        output.push(filtered);
+        samples[i] = filtered;
         prev = filtered;
     }
-
-    output
 }
 
 #[cfg(test)]

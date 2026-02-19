@@ -53,71 +53,72 @@ pub fn Spectrogram() -> impl IntoView {
 
     // Effect 1 (expensive): recompute when file or algorithm changes
     Effect::new(move || {
-        let files = state.files.get();
         let idx = state.current_file_index.get();
         let display = state.spectrogram_display.get();
         let enabled = state.mv_enabled.get();
 
-        if let Some(i) = idx {
-            if let Some(file) = files.get(i) {
-                // Determine mask range
-                // If enabled (movement view), we use untracked to avoid expensive re-runs on slider drag.
-                // If disabled (standard view), we track it so it updates.
-                let (bp_enabled, bp_mode, bp_low, bp_high) = if enabled {
-                    (
-                        state.bandpass_enabled.get_untracked(),
-                        state.bandpass_mode.get_untracked(),
-                        state.bandpass_low_hz.get_untracked(),
-                        state.bandpass_high_hz.get_untracked(),
-                    )
-                } else {
-                    (
-                        state.bandpass_enabled.get(),
-                        state.bandpass_mode.get(),
-                        state.bandpass_low_hz.get(),
-                        state.bandpass_high_hz.get(),
-                    )
-                };
-
-                let mask_range = if bp_enabled && bp_mode == BandpassMode::Visualization {
-                    Some((bp_low as f32, bp_high as f32))
-                } else {
-                    None
-                };
-
-                if file.spectrogram.columns.is_empty() {
-                    movement_cache.set(None);
-                    if let Some(ref pv) = file.preview {
-                        pre_rendered.set(Some(PreRendered {
-                            width: pv.width,
-                            height: pv.height,
-                            pixels: pv.pixels.clone(),
-                        }));
+        state.files.with(|files| {
+            if let Some(i) = idx {
+                if let Some(file) = files.get(i) {
+                    // Determine mask range
+                    // If enabled (movement view), we use untracked to avoid expensive re-runs on slider drag.
+                    // If disabled (standard view), we track it so it updates.
+                    let (bp_enabled, bp_mode, bp_low, bp_high) = if enabled {
+                        (
+                            state.bandpass_enabled.get_untracked(),
+                            state.bandpass_mode.get_untracked(),
+                            state.bandpass_low_hz.get_untracked(),
+                            state.bandpass_high_hz.get_untracked(),
+                        )
                     } else {
-                        pre_rendered.set(None);
-                    }
-                } else if !enabled {
-                    movement_cache.set(None);
-                    pre_rendered.set(Some(spectrogram_renderer::pre_render(&file.spectrogram, mask_range)));
-                } else {
-                    let algo = match display {
-                        SpectrogramDisplay::MovementCentroid => MovementAlgo::Centroid,
-                        SpectrogramDisplay::MovementGradient => MovementAlgo::Gradient,
-                        SpectrogramDisplay::MovementFlow => MovementAlgo::Flow,
+                        (
+                            state.bandpass_enabled.get(),
+                            state.bandpass_mode.get(),
+                            state.bandpass_low_hz.get(),
+                            state.bandpass_high_hz.get(),
+                        )
                     };
-                    let md = spectrogram_renderer::compute_movement_data(&file.spectrogram, algo);
-                    let ig = state.mv_intensity_gate.get_untracked();
-                    let mg = state.mv_movement_gate.get_untracked();
-                    let op = state.mv_opacity.get_untracked();
-                    let freq_res = file.spectrogram.freq_resolution as f32;
-                    pre_rendered.set(Some(spectrogram_renderer::composite_movement(&md, ig, mg, op, mask_range, freq_res)));
-                    movement_cache.set(Some(md));
+
+                    let mask_range = if bp_enabled && bp_mode == BandpassMode::Visualization {
+                        Some((bp_low as f32, bp_high as f32))
+                    } else {
+                        None
+                    };
+
+                    if file.spectrogram.columns.is_empty() {
+                        movement_cache.set(None);
+                        if let Some(ref pv) = file.preview {
+                            pre_rendered.set(Some(PreRendered {
+                                width: pv.width,
+                                height: pv.height,
+                                pixels: pv.pixels.clone(),
+                            }));
+                        } else {
+                            pre_rendered.set(None);
+                        }
+                    } else if !enabled {
+                        movement_cache.set(None);
+                        pre_rendered.set(Some(spectrogram_renderer::pre_render(&file.spectrogram, mask_range)));
+                    } else {
+                        let algo = match display {
+                            SpectrogramDisplay::MovementCentroid => MovementAlgo::Centroid,
+                            SpectrogramDisplay::MovementGradient => MovementAlgo::Gradient,
+                            SpectrogramDisplay::MovementFlow => MovementAlgo::Flow,
+                        };
+                        let md = spectrogram_renderer::compute_movement_data(&file.spectrogram, algo);
+                        let ig = state.mv_intensity_gate.get_untracked();
+                        let mg = state.mv_movement_gate.get_untracked();
+                        let op = state.mv_opacity.get_untracked();
+                        let freq_res = file.spectrogram.freq_resolution as f32;
+                        pre_rendered.set(Some(spectrogram_renderer::composite_movement(&md, ig, mg, op, mask_range, freq_res)));
+                        movement_cache.set(Some(md));
+                    }
                 }
+            } else {
+                movement_cache.set(None);
+                pre_rendered.set(None);
             }
-        } else {
-            movement_cache.set(None);
-            pre_rendered.set(None);
-        }
+        });
     });
 
     // Effect 2 (cheap): re-composite when gate/opacity sliders change
@@ -138,9 +139,10 @@ pub fn Spectrogram() -> impl IntoView {
         };
 
         // Get freq res
-        let files = state.files.get();
         let idx = state.current_file_index.get();
-        let freq_res = idx.and_then(|i| files.get(i)).map(|f| f.spectrogram.freq_resolution as f32).unwrap_or(43.0);
+        let freq_res = state.files.with(|files| {
+            idx.and_then(|i| files.get(i)).map(|f| f.spectrogram.freq_resolution as f32).unwrap_or(43.0)
+        });
 
         movement_cache.with_untracked(|mc| {
             if let Some(md) = mc {
@@ -194,18 +196,16 @@ pub fn Spectrogram() -> impl IntoView {
 
         pre_rendered.with_untracked(|pr| {
             if let Some(rendered) = pr {
-                let files = state.files.get_untracked();
                 let idx = state.current_file_index.get_untracked();
-                let time_res = idx
-                    .and_then(|i| files.get(i))
-                    .map(|f| f.spectrogram.time_resolution)
-                    .unwrap_or(1.0);
+                let (time_res, file_max_freq) = state.files.with_untracked(|files| {
+                    if let Some(i) = idx {
+                        if let Some(file) = files.get(i) {
+                            return (file.spectrogram.time_resolution, file.spectrogram.max_freq);
+                        }
+                    }
+                    (1.0, 96_000.0)
+                });
                 let scroll_col = scroll / time_res;
-
-                let file_max_freq = idx
-                    .and_then(|i| files.get(i))
-                    .map(|f| f.spectrogram.max_freq)
-                    .unwrap_or(96_000.0);
                 let max_freq = max_display_freq.unwrap_or(file_max_freq);
                 let freq_crop = max_freq / file_max_freq;
 
@@ -330,12 +330,12 @@ pub fn Spectrogram() -> impl IntoView {
         let display_w = canvas.width() as f64;
         if display_w == 0.0 { return; }
 
-        let files = state.files.get_untracked();
         let idx = state.current_file_index.get_untracked();
-        let time_res = idx
-            .and_then(|i| files.get(i))
-            .map(|f| f.spectrogram.time_resolution)
-            .unwrap_or(1.0);
+        let time_res = state.files.with_untracked(|files| {
+            idx.and_then(|i| files.get(i))
+                .map(|f| f.spectrogram.time_resolution)
+                .unwrap_or(1.0)
+        });
         let zoom = state.zoom_level.get_untracked();
         let scroll = state.scroll_offset.get_untracked();
 
@@ -357,11 +357,14 @@ pub fn Spectrogram() -> impl IntoView {
         let cw = canvas.width() as f64;
         let ch = canvas.height() as f64;
 
-        let files = state.files.get_untracked();
         let idx = state.current_file_index.get_untracked()?;
-        let file = files.get(idx)?;
-        let time_res = file.spectrogram.time_resolution;
-        let file_max_freq = file.spectrogram.max_freq;
+        let (time_res, file_max_freq) = state.files.with_untracked(|files| {
+            if let Some(file) = files.get(idx) {
+                (file.spectrogram.time_resolution, file.spectrogram.max_freq)
+            } else {
+                (1.0, 96_000.0) // fallback
+            }
+        });
         let max_freq = state.max_display_freq.get_untracked()
             .unwrap_or(file_max_freq);
         let scroll = state.scroll_offset.get_untracked();
@@ -454,9 +457,10 @@ pub fn Spectrogram() -> impl IntoView {
                 view! {
                     <SpectrogramWebGl3D
                         data=Signal::derive(move || {
-                             let files = state.files.get();
-                             let idx = state.current_file_index.get()?;
-                             files.get(idx).map(|f| f.spectrogram.clone())
+                             state.files.with(|files| {
+                                 let idx = state.current_file_index.get()?;
+                                 files.get(idx).map(|f| f.spectrogram.clone())
+                             })
                         })
                         zgain=state.webgl_zgain.read_only().into()
                         floor_db=state.webgl_floor_db.read_only().into()

@@ -1,4 +1,4 @@
-use crate::dsp::filters::lowpass_filter;
+use crate::dsp::filters::lowpass_filter_in_place;
 use std::f64::consts::PI;
 
 /// Simulate a heterodyne bat detector by mixing (multiplying) the input signal
@@ -29,7 +29,7 @@ pub fn heterodyne_mix(samples: &[f32], sample_rate: u32, lo_freq: f64, cutoff_hz
     // (equivalent to a 4th-order Butterworth).
     let mut filtered = mixed;
     for _ in 0..4 {
-        filtered = lowpass_filter(&filtered, cutoff_hz, sample_rate);
+        lowpass_filter_in_place(&mut filtered, cutoff_hz, sample_rate);
     }
     filtered
 }

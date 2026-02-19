@@ -188,8 +188,7 @@ impl AppState {
     }
 
     pub fn current_file(&self) -> Option<LoadedFile> {
-        let files = self.files.get();
         let idx = self.current_file_index.get()?;
-        files.get(idx).cloned()
+        self.files.with(|files| files.get(idx).cloned())
     }
 }
