@@ -61,6 +61,9 @@ pub fn SpectrogramWebGl3D(
         canvas.set_width(w as u32);
         canvas.set_height(h as u32);
         last_dims.set((w,h));
+
+        // Ensure playhead starts at 0 or a valid position for the view
+        state.playhead_time.set(0.0);
     });
 
     // upload when data changes
@@ -124,23 +127,6 @@ pub fn SpectrogramWebGl3D(
 
                 // Write to texture buffer
                 // Texture expects: x=time, y=freq
-                // Note: t varies fastest in idx calculation if we want [x=time, y=freq] layout?
-                // Wait. Texture memory layout usually rows first?
-                // upload_db_texture: "row-major time-major (x changes fastest)"
-                // But texture coordinates: u (x) is usually width (columns), v (y) is height (rows).
-                // If width=time, height=freq.
-                // GL_TEXTURE_2D expects data as sequence of rows.
-                // Row 0 (y=0) is usually bottom.
-                // Each row has width pixels.
-                // So data should be [ (x=0,y=0), (x=1,y=0), ... (x=W-1,y=0), (x=0,y=1), ... ]
-                // This means X changes fastest.
-
-                // My previous code:
-                // let idx = f * t_bins + t;
-                // f is freq (y), t is time (x).
-                // So idx = y * width + x.
-                // This matches "x changes fastest".
-
                 let idx = f * target_width + t;
                 if idx < db_data.len() {
                     db_data[idx] = val_db;
@@ -194,27 +180,11 @@ pub fn SpectrogramWebGl3D(
             });
         } else {
             // Pan
-            // We need to move target relative to camera view
             let sensitivity = 0.005 * state.camera_distance.get();
-            // This is a simplified pan (just moves X/Z in world, ignores camera rotation for simplicity or should be relative?)
-            // Relative is better.
-            // Right vector, Up vector...
-            // Let's just do simple world axis pan for now, or improve if time.
-            // Actually, usually Pan moves the target perpendicular to Look vector.
-            // Let's stick to X/Y pan in screen space -> X/Z in world space?
-            // "Click camera move" -> assuming translation.
-
-            // Just mapping dx to X and dy to Y (or Z)
             state.camera_target.update(|t| {
                 t[0] -= dx as f32 * sensitivity;
-                t[2] -= dy as f32 * sensitivity; // Z is depth/height in 3D usually, here Y is freq (height), X is time, Z is magnitude?
-                // Vertex shader: x=time, y=freq, z=mag.
-                // So Camera Up is likely Y.
-                // So Pan X moves Time, Pan Y moves Freq?
-                // Let's assume standard camera control:
-                // Shift-Drag moves target.
+                t[2] -= dy as f32 * sensitivity;
             });
-            // Let's refine Pan later if needed.
         }
     };
 
@@ -236,7 +206,6 @@ pub fn SpectrogramWebGl3D(
                 drag_mode.set(0); // Rotate
             }
         }
-        // Pinch zoom could be added here
     };
 
     let on_touchmove = move |ev: web_sys::TouchEvent| {
@@ -309,37 +278,34 @@ pub fn SpectrogramWebGl3D(
                     } else {
                         tex_scale = window_dur / total_duration;
 
-                        // Center window on playhead? Or start at playhead?
-                        // "view perspective default so you can see a range... defaults to 5 seconds"
-                        // Usually waterfall scrolls playhead.
-                        // Let's put playhead at 10% or center?
-                        // If playing, we scroll.
-
                         let current_time = state.playhead_time.get_untracked();
 
-                        // Let's say we want to show [current_time, current_time + window]?
-                        // Or [current_time - window/2, current_time + window/2]?
-                        // Often waterfall shows history (past).
-                        // Let's assume standard left-to-right scrolling:
-                        // Left edge = current_time.
-                        // Wait, if it's "Acceleration up or down", we are looking at a spectrogram.
-                        // If playing, the "cursor" moves, or the "paper" moves?
-                        // "Animate the waterfall" -> Paper moves.
-                        // So the view window moves.
+                        // We want to center the playhead or have it on the left?
+                        // "defaults to 5 seconds a time"
+                        // Standard waterfall: left edge is 'now' (if scrolling right) or right edge is 'now' (if scrolling left).
+                        // Let's assume standard left-to-right reading:
+                        // Window start = current_time.
+                        // But we might want to see a bit of history?
+                        // Let's keep it simple: Start at playhead.
+                        // BUT, if tex_offset + tex_scale > 1.0, we clamp or wrap?
+                        // Clamp for now.
 
-                        // Let's define the window start.
-                        let start_time = current_time - (window_dur * 0.1); // Keep playhead slightly from left edge
-                        let start_uv = start_time / total_duration;
-
-                        tex_offset = start_uv;
-
-                        // Clamp?
-                        // If we loop, we might want to wrap.
-                        // Texture is CLAMP_TO_EDGE.
-                        // Let's not clamp tightly, allowing seeing empty space if we go past end is fine (it will streak).
+                        // FIX: tex_offset calculation was potentially wrong if playhead is 0
+                        tex_offset = (current_time / total_duration) as f64;
+                        if tex_offset + tex_scale > 1.0 {
+                             tex_offset = 1.0 - tex_scale;
+                        }
+                        if tex_offset < 0.0 { tex_offset = 0.0; }
                     }
                 }
             }
+
+            // FIX: If data is None, we still want to clear the screen!
+            // Or at least not leave it black if we have no data?
+            // The black screen might be because we return early if data is None?
+            // But if data is None, we just render empty?
+            // Wait, if upload hasn't happened, texture might be empty.
+            // But we initialize 1x1 texture in `new`.
 
             renderer.with_value(|wrapper| {
                 if let Some(wf_wrapper) = wrapper {
@@ -406,6 +372,11 @@ fn orbit_viewproj(aspect: f32, yaw: f32, pitch: f32, dist: f32, target: [f32;3])
     let r_xz = pitch.sin();
     let x = r_xz * yaw.sin();
     let z = r_xz * yaw.cos();
+
+    // Check for NaN or Inf
+    let x = if x.is_nan() { 0.0 } else { x };
+    let y = if y.is_nan() { 1.0 } else { y };
+    let z = if z.is_nan() { 0.0 } else { z };
 
     let eye = [
         target[0] + x * dist,
