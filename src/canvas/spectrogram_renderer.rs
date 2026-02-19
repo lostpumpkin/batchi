@@ -15,7 +15,7 @@ pub struct PreRendered {
 /// Pre-render the entire spectrogram to an RGBA pixel buffer.
 /// Width = number of columns, Height = number of frequency bins.
 /// Frequency axis: row 0 = highest frequency (top), last row = 0 Hz (bottom).
-pub fn pre_render(data: &SpectrogramData) -> PreRendered {
+pub fn pre_render(data: &SpectrogramData, mask_range: Option<(f32, f32)>) -> PreRendered {
     if data.columns.is_empty() {
         return PreRendered {
             width: 0,
@@ -39,7 +39,19 @@ pub fn pre_render(data: &SpectrogramData) -> PreRendered {
 
     for (col_idx, col) in data.columns.iter().enumerate() {
         for (bin_idx, &mag) in col.magnitudes.iter().enumerate() {
-            let grey = magnitude_to_greyscale(mag, max_mag);
+            let freq = bin_idx as f32 * data.freq_resolution as f32;
+            let masked = if let Some((low, high)) = mask_range {
+                freq < low || freq > high
+            } else {
+                false
+            };
+
+            let grey = if masked {
+                0
+            } else {
+                magnitude_to_greyscale(mag, max_mag)
+            };
+
             // Flip vertically: bin 0 = lowest freq → bottom row
             let y = height as usize - 1 - bin_idx;
             let pixel_idx = (y * width as usize + col_idx) * 4;
@@ -139,17 +151,46 @@ pub fn composite_movement(
     intensity_gate: f32,
     movement_gate: f32,
     opacity: f32,
+    mask_range: Option<(f32, f32)>,
+    freq_resolution: f32,
 ) -> PreRendered {
     let total = (md.width as usize) * (md.height as usize);
     let mut pixels = vec![0u8; total * 4];
 
     for i in 0..total {
-        let [r, g, b] = movement_rgb(md.greys[i], md.shifts[i], intensity_gate, movement_gate, opacity);
-        let pi = i * 4;
-        pixels[pi] = r;
-        pixels[pi + 1] = g;
-        pixels[pi + 2] = b;
-        pixels[pi + 3] = 255;
+        // Calculate freq from index
+        // i = y * width + x
+        // y in MovementData is flipped? No, computed in compute_movement_data:
+        // let y = height as usize - 1 - bin_idx;
+        // let idx = y * width as usize + col_idx;
+        // So y=0 is TOP (highest freq). bin_idx = height - 1 - y.
+
+        let width = md.width as usize;
+        let height = md.height as usize;
+        let y = i / width;
+        let bin_idx = height - 1 - y;
+        let freq = bin_idx as f32 * freq_resolution;
+
+        let masked = if let Some((low, high)) = mask_range {
+            freq < low || freq > high
+        } else {
+            false
+        };
+
+        if masked {
+            let pi = i * 4;
+            pixels[pi] = 0;
+            pixels[pi + 1] = 0;
+            pixels[pi + 2] = 0;
+            pixels[pi + 3] = 255;
+        } else {
+            let [r, g, b] = movement_rgb(md.greys[i], md.shifts[i], intensity_gate, movement_gate, opacity);
+            let pi = i * 4;
+            pixels[pi] = r;
+            pixels[pi + 1] = g;
+            pixels[pi + 2] = b;
+            pixels[pi + 3] = 255;
+        }
     }
 
     PreRendered {

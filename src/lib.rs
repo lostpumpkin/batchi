@@ -4,6 +4,7 @@ pub mod audio;
 pub mod canvas;
 pub mod components;
 pub mod state;
+pub mod webgl;
 
 use leptos::prelude::*;
 use components::app::App;

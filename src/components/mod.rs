@@ -4,3 +4,4 @@ pub mod spectrogram;
 pub mod waveform;
 pub mod toolbar;
 pub mod analysis_panel;
+pub mod spectrogram_webgl;

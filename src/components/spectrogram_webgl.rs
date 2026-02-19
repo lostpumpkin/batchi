@@ -1,46 +1,36 @@
 //! Leptos component wrapper for the WebGL 3D waterfall spectrogram.
-//!
-//! This is designed to live alongside your existing Canvas2D spectrogram view.
-//! You can gate it behind a "View Mode" toggle:
-//!   - 2D Spectrogram (existing)
-//!   - SyllableTrace (Canvas2D ribbon; previous integration)
-//!   - WebGL Waterfall 3D (this)
-//!
-//! This component:
-//! - creates a <canvas>
-//! - initializes WebGL2 + Waterfall3D renderer on mount
-//! - exposes a hook to upload spectrogram data when it changes
-//!
-//! You will need to adapt the `SpectrogramData` accessors to your actual types.
 
-use leptos::*;
+use leptos::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
+use std::rc::Rc;
 
 use crate::webgl::waterfall_renderer::Waterfall3D;
+use crate::types::SpectrogramData;
+use crate::dsp::bandpass::BandpassParams;
+use crate::state::BandpassMode;
 
-// ---- TODO: replace this with your actual SpectrogramData type.
-#[allow(dead_code)]
-pub struct SpectrogramDataStub {
-    pub t_bins: usize,
-    pub f_bins: usize,
-    pub db: Vec<f32>, // len=t_bins*f_bins, time-major
-}
+// Unsafe wrapper to allow storing !Send types in signals (WASM is single-threaded)
+#[derive(Clone)]
+struct SendWrapper<T>(T);
+unsafe impl<T> Send for SendWrapper<T> {}
+unsafe impl<T> Sync for SendWrapper<T> {}
 
 #[component]
 pub fn SpectrogramWebGl3D(
-    /// Provide the latest spectrogram data (signals are typical in Batchi).
-    /// Replace this stub with: ReadSignal<Option<SpectrogramData>> or similar.
-    data: ReadSignal<Option<SpectrogramDataStub>>,
-    /// Visual params
-    zgain: ReadSignal<f32>,
-    floor_db: ReadSignal<f32>,
-    contrast: ReadSignal<f32>,
+    data: Signal<Option<SpectrogramData>>,
+    zgain: Signal<f32>,
+    floor_db: Signal<f32>,
+    contrast: Signal<f32>,
+    bandpass_params: Signal<BandpassParams>,
+    bandpass_mode: Signal<BandpassMode>,
 ) -> impl IntoView {
-    let canvas_ref = create_node_ref::<HtmlCanvasElement>();
+    let canvas_ref = NodeRef::<leptos::html::Canvas>::new();
 
-    // renderer state
-    let renderer = create_rw_signal::<Option<Waterfall3D>>(None);
+    // renderer state: StoredValue because WebGL context is !Send
+    let renderer = store_value(None::<SendWrapper<Waterfall3D>>);
+    let renderer_ready = create_rw_signal(false);
     let last_dims = create_rw_signal::<(i32,i32)>( (0,0) );
 
     // init on mount
@@ -51,8 +41,9 @@ pub fn SpectrogramWebGl3D(
             .and_then(|c| c.dyn_into::<WebGl2RenderingContext>().ok())
             .expect("WebGL2 unavailable");
 
-        let mut wf = Waterfall3D::new(gl).expect("failed to init Waterfall3D");
-        renderer.set(Some(wf));
+        let wf = Waterfall3D::new(gl).expect("failed to init Waterfall3D");
+        renderer.set_value(Some(SendWrapper(wf)));
+        renderer_ready.set(true);
 
         // Make canvas size follow CSS pixels with DPR
         let window = web_sys::window().unwrap();
@@ -68,24 +59,72 @@ pub fn SpectrogramWebGl3D(
 
     // upload when data changes
     create_effect(move |_| {
+        if !renderer_ready.get() { return; }
         let Some(d) = data.get() else { return; };
-        let Some(mut wf) = renderer.get() else { return; };
-        // Upload (dB grid)
-        let _ = wf.upload_db_texture(d.t_bins as i32, d.f_bins as i32, &d.db);
-        renderer.set(Some(wf));
+
+        // Convert to dB grid and flatten
+        let t_bins = d.columns.len();
+        if t_bins == 0 { return; }
+        let f_bins = d.columns[0].magnitudes.len();
+
+        let mut db_data = vec![-120.0f32; t_bins * f_bins];
+
+        // Find max magnitude for normalization
+        let max_mag = d.columns.iter()
+            .flat_map(|c| c.magnitudes.iter())
+            .copied()
+            .fold(0.0f32, f32::max)
+            .max(1e-9);
+
+        let bp = bandpass_params.get();
+        let mode = bandpass_mode.get();
+        let mask_active = bp.enabled && mode == BandpassMode::Visualization;
+
+        for (t, col) in d.columns.iter().enumerate() {
+            for (f, &mag) in col.magnitudes.iter().enumerate() {
+                let freq_hz = f as f32 * d.freq_resolution as f32;
+
+                let mut val_db = if mag > 0.0 {
+                    20.0 * (mag / max_mag).log10()
+                } else {
+                    -120.0
+                };
+
+                // Apply mask
+                if mask_active {
+                    if freq_hz < bp.low_hz || freq_hz > bp.high_hz {
+                        val_db = -120.0;
+                    }
+                }
+
+                // Write to texture buffer
+                // Texture expects: x=time, y=freq
+                let idx = f * t_bins + t;
+                if idx < db_data.len() {
+                    db_data[idx] = val_db;
+                }
+            }
+        }
+
+        renderer.update_value(|wrapper| {
+            if let Some(w) = wrapper {
+                let _ = w.0.upload_db_texture(t_bins as i32, f_bins as i32, &db_data);
+            }
+        });
     });
 
     // animation loop
     create_effect(move |_| {
         let Some(canvas) = canvas_ref.get() else { return; };
         let window = web_sys::window().unwrap();
+        let window_loop = window.clone();
 
-        let f = Rc::new(std::cell::RefCell::new(None));
+        let f = Rc::new(std::cell::RefCell::new(None::<Closure<dyn FnMut()>>));
         let g = f.clone();
 
         *g.borrow_mut() = Some(Closure::<dyn FnMut()>::new(move || {
             // Resize to match layout (cheap)
-            let dpr = window.device_pixel_ratio().min(2.0).max(1.0);
+            let dpr = window_loop.device_pixel_ratio().min(2.0).max(1.0);
             let rect = canvas.get_bounding_client_rect();
             let w = (rect.width() * dpr).floor() as i32;
             let h = (rect.height() * dpr).floor() as i32;
@@ -96,21 +135,27 @@ pub fn SpectrogramWebGl3D(
                 last_dims.set((w,h));
             }
 
-            let Some(wf) = renderer.get_untracked() else {
-                window.request_animation_frame(f.borrow().as_ref().unwrap().as_ref().unchecked_ref()).ok();
-                return;
-            };
+            renderer.with_value(|wrapper| {
+                if let Some(wf_wrapper) = wrapper {
+                    // ---- Minimal camera: fixed view-proj (replace with interactive orbit camera)
+                    let aspect = if h > 0 { w as f32 / h as f32 } else { 1.0 };
+                    let view_proj = fixed_viewproj(aspect);
 
-            // ---- Minimal camera: fixed view-proj (replace with interactive orbit camera)
-            let aspect = if h > 0 { w as f32 / h as f32 } else { 1.0 };
-            let view_proj = fixed_viewproj(aspect);
+                    wf_wrapper.0.draw(w, h, &view_proj, zgain.get(), floor_db.get(), contrast.get());
+                }
+            });
 
-            wf.draw(w, h, &view_proj, zgain.get_untracked(), floor_db.get_untracked(), contrast.get_untracked());
-
-            window.request_animation_frame(f.borrow().as_ref().unwrap().as_ref().unchecked_ref()).ok();
+            if let Some(cb) = f.borrow().as_ref() {
+                let _ = window_loop.request_animation_frame(cb.as_ref().unchecked_ref());
+            }
         }));
 
-        window.request_animation_frame(g.borrow().as_ref().unwrap().as_ref().unchecked_ref()).ok();
+        {
+            let borrow = g.borrow();
+            if let Some(cb) = borrow.as_ref() {
+                let _ = window.request_animation_frame(cb.as_ref().unchecked_ref());
+            }
+        }
     });
 
     view! {
