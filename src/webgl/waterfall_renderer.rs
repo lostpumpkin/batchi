@@ -50,6 +50,8 @@ uniform float u_zgain;
 uniform float u_floorDb;
 uniform float u_contrast;
 uniform mat4 u_viewProj;
+uniform float u_texOffset;
+uniform float u_texScale;
 
 out float v_db;
 out vec2 v_uv;
@@ -61,8 +63,11 @@ float normDb(float db){
 }
 
 void main(){
-  int tx = int(floor(a_pos.x * float(u_texSize.x - 1)));
+  // Calculate texture coordinate
+  float tx_float = (u_texOffset + a_pos.x * u_texScale);
+  int tx = int(floor(tx_float * float(u_texSize.x - 1)));
   int ty = int(floor(a_pos.y * float(u_texSize.y - 1)));
+
   float db = texelFetch(u_tex, ivec2(tx, ty), 0).r;
   float h = normDb(db);
 
@@ -71,19 +76,24 @@ void main(){
   float z = h * u_zgain;
 
   v_db = db;
-  v_uv = a_pos;
+  v_uv = vec2(tx_float, a_pos.y);
   gl_Position = u_viewProj * vec4(x, y, z, 1.0);
 }
 "#;
 
 const FRAG: &str = r#"#version 300 es
 precision highp float;
+precision highp sampler2D;
+
 in float v_db;
 in vec2 v_uv;
 out vec4 o;
 
 uniform float u_floorDb;
 uniform float u_contrast;
+uniform sampler2D u_tex;
+uniform ivec2 u_texSize;
+uniform float u_showAccel;
 
 float normDb(float db){
   float x = clamp((db - u_floorDb) / (0.0 - u_floorDb), 0.0, 1.0);
@@ -101,10 +111,41 @@ vec3 palette(float t){
 
 void main(){
   float h = normDb(v_db);
+  vec3 col = palette(h);
+
+  if (u_showAccel > 0.5) {
+      // Simple heuristic for pitch slope
+      float dx = 1.0 / float(u_texSize.x);
+      float dy = 1.0 / float(u_texSize.y);
+
+      float val = h;
+
+      // Only compute if signal is strong enough
+      if (val > 0.2) {
+          // We look slightly back in time (left) to see where the energy came from
+          float v_left = normDb(texture(u_tex, v_uv - vec2(dx, 0.0)).r);
+          float v_left_down = normDb(texture(u_tex, v_uv - vec2(dx, dy)).r); // came from lower freq
+          float v_left_up = normDb(texture(u_tex, v_uv - vec2(dx, -dy)).r);  // came from higher freq
+
+          float score_up = v_left_down;     // rising pitch
+          float score_down = v_left_up;     // falling pitch
+
+          if (score_up > score_down && score_up > v_left) {
+             col = mix(col, vec3(1.0, 0.2, 0.2), score_up * 0.8); // Red for rising
+          } else if (score_down > score_up && score_down > v_left) {
+             col = mix(col, vec3(0.2, 0.2, 1.0), score_down * 0.8); // Blue for falling
+          }
+      }
+  }
+
+  // Grid lines (scrolls with data if we use v_uv.x, but we might want fixed grid?)
+  // If we use v_uv.x, the grid moves with the waterfall.
+  // If we use gl_FragCoord or a passed 'uv_screen', it stays fixed.
+  // Waterfall usually has moving grid or fixed time ruler.
+  // Let's keep it moving with data for now.
   float gx = abs(fract(v_uv.x*100.0) - 0.5);
   float gy = abs(fract(v_uv.y*60.0) - 0.5);
   float grid = smoothstep(0.48,0.5, max(gx,gy));
-  vec3 col = palette(h);
   col = mix(col, col*0.65, grid*0.35);
   o = vec4(col, 1.0);
 }
@@ -184,35 +225,51 @@ impl Waterfall3D {
         }
 
         // rebuild mesh grid + indices for (t_bins x f_bins)
+        // Note: For animated/scrolling view, we might not need to rebuild the grid to match t_bins perfectly
+        // if we are just mapping UVs. But a dense grid allows vertex displacement (z-height) to work well.
+        // If we only show a slice, we still need enough vertices in the view frustum.
+        // Ideally the grid resolution should be decoupled from texture resolution, but here it is coupled.
+        // If the texture is huge, this is expensive.
+        // For now, I'll keep it as is, but this might be slow for long files.
+        // Optimization: Fix grid size (e.g. 500x200) and sample texture in vertex shader.
+        // But the current implementation rebuilds grid to match texture size.
         self.rebuild_grid(self.tex_w, self.tex_h)?;
 
         Ok(())
     }
 
     fn rebuild_grid(&mut self, t_bins: i32, f_bins: i32) -> Result<(), JsValue> {
-        let t_bins = t_bins.max(2) as usize;
-        let f_bins = f_bins.max(2) as usize;
+        // Limit grid size to avoid too many vertices?
+        // If t_bins is 10000, we have 20k triangles * f_bins... too much.
+        // Let's cap the grid resolution and rely on texture sampling.
+        // But if we cap grid, 'a_pos' won't match texels perfectly.
+        // However, we are now using u_texOffset/Scale, so we are scrolling the texture over the mesh.
+        // So the mesh should just have "enough" resolution.
 
-        // vertices: (t_bins*f_bins) of vec2 (u,v)
-        let mut verts: Vec<f32> = Vec::with_capacity(t_bins * f_bins * 2);
-        for y in 0..f_bins {
-            let v = if f_bins == 1 { 0.0 } else { y as f32 / (f_bins as f32 - 1.0) };
-            for x in 0..t_bins {
-                let u = if t_bins == 1 { 0.0 } else { x as f32 / (t_bins as f32 - 1.0) };
+        // Let's cap the mesh resolution to something reasonable like 500x256
+        let mesh_t = t_bins.min(512).max(2) as usize;
+        let mesh_f = f_bins.min(256).max(2) as usize;
+
+        // vertices: (mesh_t*mesh_f) of vec2 (u,v)
+        let mut verts: Vec<f32> = Vec::with_capacity(mesh_t * mesh_f * 2);
+        for y in 0..mesh_f {
+            let v = if mesh_f == 1 { 0.0 } else { y as f32 / (mesh_f as f32 - 1.0) };
+            for x in 0..mesh_t {
+                let u = if mesh_t == 1 { 0.0 } else { x as f32 / (mesh_t as f32 - 1.0) };
                 verts.push(u);
                 verts.push(v);
             }
         }
 
-        let cells_x = t_bins - 1;
-        let cells_y = f_bins - 1;
+        let cells_x = mesh_t - 1;
+        let cells_y = mesh_f - 1;
         let tri_count = cells_x * cells_y * 2;
         let mut idx: Vec<u32> = Vec::with_capacity(tri_count * 3);
         for y in 0..cells_y {
             for x in 0..cells_x {
-                let a = (y * t_bins + x) as u32;
+                let a = (y * mesh_t + x) as u32;
                 let b = a + 1;
-                let c = a + t_bins as u32;
+                let c = a + mesh_t as u32;
                 let d = c + 1;
                 idx.extend_from_slice(&[a, c, b, b, c, d]);
             }
@@ -240,7 +297,7 @@ impl Waterfall3D {
 
     /// Draw one frame.
     /// You supply a 4x4 view-projection matrix (column-major f32[16]).
-    pub fn draw(&self, viewport_w: i32, viewport_h: i32, view_proj: &[f32;16], zgain: f32, floor_db: f32, contrast: f32) {
+    pub fn draw(&self, viewport_w: i32, viewport_h: i32, view_proj: &[f32;16], zgain: f32, floor_db: f32, contrast: f32, tex_offset: f32, tex_scale: f32, show_accel: bool) {
         let gl = &self.gl;
         gl.viewport(0, 0, viewport_w, viewport_h);
         gl.enable(GL::DEPTH_TEST);
@@ -267,6 +324,15 @@ impl Waterfall3D {
 
         let loc_c = gl.get_uniform_location(&self.program, "u_contrast");
         gl.uniform1f(loc_c.as_ref(), contrast);
+
+        let loc_to = gl.get_uniform_location(&self.program, "u_texOffset");
+        gl.uniform1f(loc_to.as_ref(), tex_offset);
+
+        let loc_tsc = gl.get_uniform_location(&self.program, "u_texScale");
+        gl.uniform1f(loc_tsc.as_ref(), tex_scale);
+
+        let loc_sa = gl.get_uniform_location(&self.program, "u_showAccel");
+        gl.uniform1f(loc_sa.as_ref(), if show_accel { 1.0 } else { 0.0 });
 
         // texture
         gl.active_texture(GL::TEXTURE0);
