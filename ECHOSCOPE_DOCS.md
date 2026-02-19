@@ -43,12 +43,12 @@
 
 ```mermaid
 graph TD
-    subgraph Input
+    subgraph InputGroup ["Input"]
         RawAudio["Raw Audio (WAV/FLAC/ZC)"]
         Metadata["Metadata (Timestamp, GPS)"]
     end
 
-    subgraph "EchoScope Core"
+    subgraph Core ["EchoScope Core"]
         Ingest[Ingestion & Normalization]
         Preproc["Preprocessing (Filter, Denoise)"]
         Detect[Detection & Segmentation]
@@ -56,7 +56,7 @@ graph TD
         Classify["Classification (ML/Rules)"]
     end
 
-    subgraph Output
+    subgraph OutputGroup ["Output"]
         Report["Reports (PDF/HTML)"]
         Data["Data Exports (CSV/JSON)"]
         Vis["Visualizations (Spectrograms/Maps)"]
