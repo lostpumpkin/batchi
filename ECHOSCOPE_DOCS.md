@@ -44,22 +44,22 @@ R. [Design Rationale](#r-design-rationale)
 ```mermaid
 graph TD
     subgraph Input
-        RawAudio[Raw Audio (WAV/FLAC/ZC)]
-        Metadata[Metadata (Timestamp, GPS)]
+        RawAudio["Raw Audio (WAV/FLAC/ZC)"]
+        Metadata["Metadata (Timestamp, GPS)"]
     end
 
     subgraph "EchoScope Core"
         Ingest[Ingestion & Normalization]
-        Preproc[Preprocessing (Filter, Denoise)]
+        Preproc["Preprocessing (Filter, Denoise)"]
         Detect[Detection & Segmentation]
         Feature[Feature Extraction]
-        Classify[Classification (ML/Rules)]
+        Classify["Classification (ML/Rules)"]
     end
 
     subgraph Output
-        Report[Reports (PDF/HTML)]
-        Data[Data Exports (CSV/JSON)]
-        Vis[Visualizations (Spectrograms/Maps)]
+        Report["Reports (PDF/HTML)"]
+        Data["Data Exports (CSV/JSON)"]
+        Vis["Visualizations (Spectrograms/Maps)"]
     end
 
     RawAudio --> Ingest
