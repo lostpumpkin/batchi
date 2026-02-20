@@ -358,9 +358,6 @@ function __wbg_get_imports() {
             const ret = arg0.ctrlKey;
             return ret;
         },
-        __wbg_cullFace_e7e711a14d2c3f48: function(arg0, arg1) {
-            arg0.cullFace(arg1 >>> 0);
-        },
         __wbg_dataTransfer_d924a622fbe51b06: function(arg0) {
             const ret = arg0.dataTransfer;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
@@ -383,6 +380,9 @@ function __wbg_get_imports() {
         __wbg_devicePixelRatio_5c458affc89fc209: function(arg0) {
             const ret = arg0.devicePixelRatio;
             return ret;
+        },
+        __wbg_disable_7fe6fb3e97717f88: function(arg0, arg1) {
+            arg0.disable(arg1 >>> 0);
         },
         __wbg_document_ee35a3d3ae34ef6c: function(arg0) {
             const ret = arg0.document;
@@ -1057,7 +1057,7 @@ function __wbg_get_imports() {
     };
     return {
         __proto__: null,
-        "./batchi-152ebc2acc82218d314e3fb2a001e7c4efa3ae5babf72e2a8a2a3f59aa70a348e62c1713ba159382d6a247fcb460c3a9_bg.js": import0,
+        "./batchi-5bf51c8dbd8d1b00e6dc5a03c6fccc12bcade84cd274573de6ff71b3164f3bb098fadd1b8785f06e99cd4e9c7697f016_bg.js": import0,
     };
 }
 
@@ -1451,7 +1451,7 @@ async function __wbg_init(module_or_path) {
     }
 
     if (module_or_path === undefined) {
-        module_or_path = new URL('batchi-152ebc2acc82218d314e3fb2a001e7c4efa3ae5babf72e2a8a2a3f59aa70a348e62c1713ba159382d6a247fcb460c3a9_bg.wasm', import.meta.url);
+        module_or_path = new URL('batchi-5bf51c8dbd8d1b00e6dc5a03c6fccc12bcade84cd274573de6ff71b3164f3bb098fadd1b8785f06e99cd4e9c7697f016_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
 

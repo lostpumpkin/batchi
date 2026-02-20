@@ -271,7 +271,10 @@ impl Waterfall3D {
                 let b = a + 1;
                 let c = a + mesh_t as u32;
                 let d = c + 1;
-                idx.extend_from_slice(&[a, c, b, b, c, d]);
+                // Use Counter-Clockwise (CCW) winding order for standard GL front face
+                // Triangle 1: a -> b -> c
+                // Triangle 2: b -> d -> c
+                idx.extend_from_slice(&[a, b, c, b, d, c]);
             }
         }
 
@@ -301,8 +304,10 @@ impl Waterfall3D {
         let gl = &self.gl;
         gl.viewport(0, 0, viewport_w, viewport_h);
         gl.enable(GL::DEPTH_TEST);
-        gl.enable(GL::CULL_FACE);
-        gl.cull_face(GL::BACK);
+
+        // Disable backface culling to ensure mesh visibility regardless of camera orientation/winding
+        gl.disable(GL::CULL_FACE);
+
         gl.clear_color(0.04, 0.05, 0.08, 1.0);
         gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
 
