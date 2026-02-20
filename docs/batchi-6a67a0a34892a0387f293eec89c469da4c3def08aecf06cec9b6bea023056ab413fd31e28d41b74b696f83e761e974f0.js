@@ -1057,7 +1057,7 @@ function __wbg_get_imports() {
     };
     return {
         __proto__: null,
-        "./batchi-5bf51c8dbd8d1b00e6dc5a03c6fccc12bcade84cd274573de6ff71b3164f3bb098fadd1b8785f06e99cd4e9c7697f016_bg.js": import0,
+        "./batchi-6a67a0a34892a0387f293eec89c469da4c3def08aecf06cec9b6bea023056ab413fd31e28d41b74b696f83e761e974f0_bg.js": import0,
     };
 }
 
@@ -1451,7 +1451,7 @@ async function __wbg_init(module_or_path) {
     }
 
     if (module_or_path === undefined) {
-        module_or_path = new URL('batchi-5bf51c8dbd8d1b00e6dc5a03c6fccc12bcade84cd274573de6ff71b3164f3bb098fadd1b8785f06e99cd4e9c7697f016_bg.wasm', import.meta.url);
+        module_or_path = new URL('batchi-6a67a0a34892a0387f293eec89c469da4c3def08aecf06cec9b6bea023056ab413fd31e28d41b74b696f83e761e974f0_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
 

@@ -111,7 +111,8 @@ vec3 palette(float t){
 
 void main(){
   float h = normDb(v_db);
-  vec3 col = palette(h);
+  // Add base color so the mesh is visible even in silence
+  vec3 col = palette(h) + vec3(0.02, 0.02, 0.05);
 
   if (u_showAccel > 0.5) {
       // Simple heuristic for pitch slope
@@ -146,7 +147,8 @@ void main(){
   float gx = abs(fract(v_uv.x*100.0) - 0.5);
   float gy = abs(fract(v_uv.y*60.0) - 0.5);
   float grid = smoothstep(0.48,0.5, max(gx,gy));
-  col = mix(col, col*0.65, grid*0.35);
+  // Make grid lines lighter/visible
+  col = mix(col, vec3(0.3, 0.4, 0.5), grid*0.15);
   o = vec4(col, 1.0);
 }
 "#;
