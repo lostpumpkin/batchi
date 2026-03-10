@@ -50,28 +50,35 @@ pub fn replay_het(state: &AppState) {
         }
     });
 
-    let files = state.files.get_untracked();
     let idx = state.current_file_index.get_untracked();
-    let Some(file) = idx.and_then(|i| files.get(i)) else { return };
+    let (samples, sr, remaining_duration) = state.files.with_untracked(|files| {
+        let Some(file) = idx.and_then(|i| files.get(i)) else { return (Vec::new(), 44100, 0.0) };
+        let selection = state.selection.get_untracked();
 
-    let selection = state.selection.get_untracked();
-    let het_freq = state.het_frequency.get_untracked();
+        // Extract remaining samples from current_time to selection end (or file end)
+        let sr = file.audio.sample_rate;
+        let sel_end = selection.map(|s| s.time_end).unwrap_or(file.audio.duration_secs);
+        let start_sample = (current_time * sr as f64) as usize;
+        let end_sample = (sel_end * sr as f64) as usize;
+        let start_sample = start_sample.min(file.audio.samples.len());
+        let end_sample = end_sample.min(file.audio.samples.len());
 
-    // Extract remaining samples from current_time to selection end (or file end)
-    let sr = file.audio.sample_rate;
-    let sel_end = selection.map(|s| s.time_end).unwrap_or(file.audio.duration_secs);
-    let start_sample = (current_time * sr as f64) as usize;
-    let end_sample = (sel_end * sr as f64) as usize;
-    let start_sample = start_sample.min(file.audio.samples.len());
-    let end_sample = end_sample.min(file.audio.samples.len());
+        if end_sample <= start_sample {
+            return (Vec::new(), sr, 0.0);
+        }
 
-    if end_sample <= start_sample {
+        let samples = file.audio.samples[start_sample..end_sample].to_vec();
+        let remaining_duration = (end_sample - start_sample) as f64 / sr as f64;
+        (samples, sr, remaining_duration)
+    });
+
+    if samples.is_empty() {
         state.is_playing.set(false);
         return;
     }
 
-    let samples = file.audio.samples[start_sample..end_sample].to_vec();
-    let remaining_duration = (end_sample - start_sample) as f64 / sr as f64;
+    let selection = state.selection.get_untracked();
+    let het_freq = state.het_frequency.get_untracked();
 
     let effective_lo = if let Some(sel) = selection {
         if sel.freq_low > 0.0 || sel.freq_high > 0.0 {
@@ -101,18 +108,25 @@ pub fn replay(state: &AppState) {
 pub fn play(state: &AppState) {
     stop(state);
 
-    let files = state.files.get_untracked();
     let idx = state.current_file_index.get_untracked();
-    let Some(file) = idx.and_then(|i| files.get(i)) else { return };
+    let selection = state.selection.get_untracked();
+
+    let (samples, sample_rate) = state.files.with_untracked(|files| {
+        if let Some(i) = idx {
+            if let Some(file) = files.get(i) {
+                return extract_selection(&file.audio, selection);
+            }
+        }
+        (Vec::new(), 44100)
+    });
+
+    if samples.is_empty() { return; }
 
     let mode = state.playback_mode.get_untracked();
-    let selection = state.selection.get_untracked();
     let het_freq = state.het_frequency.get_untracked();
     let te_factor = state.te_factor.get_untracked();
     let ps_factor = state.ps_factor.get_untracked();
     let zc_factor = state.zc_factor.get_untracked();
-
-    let (samples, sample_rate) = extract_selection(&file.audio, selection);
 
     // Apply EQ filter if enabled, otherwise fall back to selection-based bandpass
     let filter_enabled = state.filter_enabled.get_untracked();

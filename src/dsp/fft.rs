@@ -3,6 +3,11 @@ use crate::types::{AudioData, PreviewImage, SpectrogramColumn, SpectrogramData};
 use crate::dsp::bandpass::{BandpassParams, BandpassChain};
 use realfft::RealFftPlanner;
 use std::borrow::Cow;
+use std::cell::RefCell;
+
+thread_local! {
+    static FFT_PLANNER: RefCell<RealFftPlanner<f32>> = RefCell::new(RealFftPlanner::<f32>::new());
+}
 
 /// Compute a spectrogram from audio data using a Short-Time Fourier Transform (STFT).
 ///
@@ -13,8 +18,9 @@ pub fn compute_spectrogram(
     hop_size: usize,
     bandpass: Option<BandpassParams>,
 ) -> SpectrogramData {
-    let mut planner = RealFftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(fft_size);
+    let fft = FFT_PLANNER.with(|planner| {
+        planner.borrow_mut().plan_fft_forward(fft_size)
+    });
 
     let mut columns = Vec::new();
 

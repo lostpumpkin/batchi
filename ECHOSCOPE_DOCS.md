@@ -293,6 +293,12 @@ echoscope download-models --region north_america
     -   **Batch Process:** Click "Run Analysis" in toolbar.
     -   **Review:** Navigate detections with `Left`/`Right` arrow keys. `Space` to play audio (heterodyned). `1-9` to assign species labels.
 
+### Web Interface (Batchi)
+
+EchoScope also includes a web-based GUI called "Batchi". It allows for interactive spectrogram visualization and playback directly in the browser.
+
+See [BATCHI_README.md](./BATCHI_README.md) for setup and running instructions.
+
 ---
 
 ## F. Core Concepts

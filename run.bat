@@ -1,0 +1,3 @@
+@echo off
+echo Starting Batchi server...
+trunk serve --open
