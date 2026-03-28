@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
-use crate::state::{AppState, PlaybackMode};
+use crate::state::{AppState, PlaybackMode, ViewMode};
 use crate::audio::playback;
 
 #[component]
@@ -95,6 +95,17 @@ pub fn Toolbar() -> impl IntoView {
             </button>
 
             <div class="toolbar-sep"></div>
+
+            // Mobile Toggle
+            <div class="mode-group" style="margin-right: 12px">
+                <button
+                     class=move || if state.is_mobile.get() { "mode-btn active" } else { "mode-btn" }
+                     on:click=move |_| state.is_mobile.update(|m| *m = !*m)
+                     title="Toggle Mobile Layout"
+                >
+                    "📱"
+                </button>
+            </div>
 
             // Mode selector — radio-style buttons
             <div class="mode-group">
@@ -211,6 +222,39 @@ pub fn Toolbar() -> impl IntoView {
                             <span class="mode-hint">"Native rate"</span>
                         }.into_any()
                     }
+                }
+            }}
+
+            // Waterfall controls
+            {move || {
+                if state.view_mode.get() == ViewMode::Waterfall3D {
+                     view! {
+                         <div class="toolbar-sep"></div>
+                         <label class="mode-param" style="min-width: 120px">
+                             <span style="font-size: 10px; margin-right: 4px; color: #777;">"WIN"</span>
+                             <span class="mode-param-value">{move || format!("{:.1}s", state.waterfall_time_window.get())}</span>
+                             <input type="range" min="1" max="30" step="0.5"
+                                 prop:value=move || state.waterfall_time_window.get().to_string()
+                                 on:input=move |ev| {
+                                     let target = ev.target().unwrap();
+                                     let input: web_sys::HtmlInputElement = target.unchecked_into();
+                                     if let Ok(val) = input.value().parse::<f64>() {
+                                         state.waterfall_time_window.set(val);
+                                     }
+                                 }
+                             />
+                         </label>
+                         <button
+                             class=move || if state.waterfall_show_accel.get() { "mode-btn active" } else { "mode-btn" }
+                             on:click=move |_| state.waterfall_show_accel.update(|b| *b = !*b)
+                             title="Show Amplitude Acceleration (Pitch Flow)"
+                             style="margin-left: 8px"
+                         >
+                             "Accel"
+                         </button>
+                     }.into_any()
+                } else {
+                    view! { }.into_any()
                 }
             }}
         </div>

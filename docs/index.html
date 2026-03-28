@@ -1,21 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Batchi</title>
-    <link rel="stylesheet" href="/batchi/style-c0122e19d213c32d.css" integrity="sha384-a0L89mAFMoOJQO4YIpQLXUz950zUWphNSx1sNQzX96nL/B3Sl40brTcpDWh0OG6D"/>
-<link rel="modulepreload" href="/batchi/batchi-2ae662938777ccbd.js" crossorigin="anonymous" integrity="sha384-UN/QEMWykKNPl3YCSqse3wqKSau/AoT0oBf2h4GlPmcoVpvxkke+HfhPQKwsexo+"><link rel="preload" href="/batchi/batchi-2ae662938777ccbd_bg.wasm" crossorigin="anonymous" integrity="sha384-NApu/9IKuNr3K/wuQ67hOfb8ePPBchkhJpvMo6Rvyc+IseDCIf9rVQQ7QxaLuw03" as="fetch" type="application/wasm"></head>
-<body>
-<script type="module">
-import init, * as bindings from '/batchi/batchi-2ae662938777ccbd.js';
-const wasm = await init({ module_or_path: '/batchi/batchi-2ae662938777ccbd_bg.wasm' });
-
-
+<!doctype html><html lang=en><meta charset=utf-8><meta content="width=device-width,initial-scale=1.0" name=viewport><title>Batchi</title><link href=/batchi/style-e9d4d6189c0cc98d.css integrity=sha384-hM_yavgB_ckScQCOGpTDlQIyRk-4kODaJ8CuGXU-I5OAlN4ZuysygxtNpzRbWeAb rel=stylesheet><link as=fetch crossorigin href=/batchi/batchi-6a67a0a34892a0387f293eec89c469da4c3def08aecf06cec9b6bea023056ab413fd31e28d41b74b696f83e761e974f0_bg.wasm integrity=sha384-amego0iSoDh_KT7sicRp2kw97wiuzwbOyba-oCMFarQT_THijUG3S2lvg-dh6XTw rel=preload type=application/wasm><link crossorigin href=/batchi/batchi-6a67a0a34892a0387f293eec89c469da4c3def08aecf06cec9b6bea023056ab413fd31e28d41b74b696f83e761e974f0.js integrity=sha384-yl3C1bTeq7t6eRL5jmhrdciNBo4t398fHQVF8c2YwlJY6hUizNtZFaJUoSREShv3 rel=modulepreload></head><body><script type=module>
+import init, * as bindings from '/batchi/batchi-6a67a0a34892a0387f293eec89c469da4c3def08aecf06cec9b6bea023056ab413fd31e28d41b74b696f83e761e974f0.js';
+init('/batchi/batchi-6a67a0a34892a0387f293eec89c469da4c3def08aecf06cec9b6bea023056ab413fd31e28d41b74b696f83e761e974f0_bg.wasm');
 window.wasmBindings = bindings;
 
-
-dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
-
-</script></body>
-</html>
+</script></body></html>

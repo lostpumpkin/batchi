@@ -597,3 +597,34 @@ body.sidebar-resizing {
     font-size: 12px;
     color: #777;
 }
+
+/* Mobile Mode */
+.app.mobile-mode .toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    height: auto;
+    min-height: 48px;
+}
+
+.app.mobile-mode .toolbar button,
+.app.mobile-mode .mode-btn {
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    min-height: 36px;
+}
+
+.app.mobile-mode .sidebar-tab {
+    padding: 12px 8px;
+    font-size: 13px;
+}
+
+.app.mobile-mode .file-item {
+    padding: 12px 16px;
+    font-size: 14px;
+}
+
+/* Adjust layout for sidebar when it takes full screen */
+.app.mobile-mode .sidebar {
+    border-right: none;
+    z-index: 50; /* Above others if needed */
+}

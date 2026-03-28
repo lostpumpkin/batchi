@@ -125,6 +125,15 @@ pub struct AppState {
     pub webgl_zgain: RwSignal<f32>,
     pub webgl_floor_db: RwSignal<f32>,
     pub webgl_contrast: RwSignal<f32>,
+    // Mobile / Responsive
+    pub is_mobile: RwSignal<bool>,
+    // Waterfall / 3D
+    pub waterfall_time_window: RwSignal<f64>,
+    pub waterfall_show_accel: RwSignal<bool>,
+    pub camera_yaw: RwSignal<f32>,
+    pub camera_pitch: RwSignal<f32>,
+    pub camera_distance: RwSignal<f32>,
+    pub camera_target: RwSignal<[f32; 3]>,
 }
 
 impl AppState {
@@ -184,6 +193,13 @@ impl AppState {
             webgl_zgain: RwSignal::new(0.5),
             webgl_floor_db: RwSignal::new(-80.0),
             webgl_contrast: RwSignal::new(1.0),
+            is_mobile: RwSignal::new(false),
+            waterfall_time_window: RwSignal::new(5.0),
+            waterfall_show_accel: RwSignal::new(false),
+            camera_yaw: RwSignal::new(-0.5),
+            camera_pitch: RwSignal::new(0.5),
+            camera_distance: RwSignal::new(5.0),
+            camera_target: RwSignal::new([0.0, 0.0, 0.0]),
         }
     }
 
